@@ -1,0 +1,15 @@
+{
+  "name": "My Cookbook",
+  "short_name": "Cookbook",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#FAF6EE",
+  "theme_color": "#C84B31",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

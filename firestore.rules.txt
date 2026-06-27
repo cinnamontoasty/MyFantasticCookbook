@@ -1,0 +1,23 @@
+// ============================================================
+// FIRESTORE SECURITY RULES
+// ============================================================
+// In the Firebase Console:
+//   Firestore Database > Rules tab > paste this in > click "Publish"
+//
+// What this does: anyone who opens YOUR app gets signed in silently
+// and anonymously (no password, no login screen -- handled by app.js).
+// These rules say "a signed-in user can only read/write the document
+// that matches their own anonymous user ID." Since you're the only
+// person with the app link, you're effectively the only person who
+// can ever read or write your recipes, even though the database
+// itself is reachable from the internet.
+// ============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /cookbooks/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
