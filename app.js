@@ -200,6 +200,11 @@ function render() {
   else if (currentView.name === "cook") renderCook(app);
   else if (currentView.name === "add") renderAddForm(app);
 
+  // Always clear any existing modal nodes before deciding whether to draw
+  // one fresh. This guarantees DOM state can never drift from app state,
+  // even if render() is called multiple times in a row (e.g. once from
+  // a sync callback, once from a user action) before a flag is flipped.
+  document.querySelectorAll("#importOverlay, #settingsOverlay").forEach((el) => el.remove());
   if (showImportModal) renderImportModal();
   if (showSettingsModal) renderSettingsModal();
 }
@@ -700,28 +705,20 @@ async function handleImportConfirm() {
   } catch (e) {
     importError = "That doesn't look like valid JSON. Make sure you copied the whole thing, including the { } at each end.";
     render();
-    reattachImportModal();
     return;
   }
   try {
     const recipe = normalizeImportedRecipe(parsed);
     recipes.push(recipe);
-    await persistRecipes();
     showImportModal = false;
     importText = "";
-    document.getElementById("importOverlay")?.remove();
+    importError = "";
     currentView = { name: "list" };
-    render();
+    await persistRecipes();
   } catch (e) {
     importError = e.message || "Couldn't read that recipe format.";
     render();
-    reattachImportModal();
   }
-}
-
-function reattachImportModal() {
-  document.getElementById("importOverlay")?.remove();
-  renderImportModal();
 }
 
 // ---------- Settings Modal ----------
