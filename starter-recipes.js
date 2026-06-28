@@ -9,6 +9,7 @@
 export const STARTER_RECIPES = [
   {
     id: "starter-turkey-pasta",
+    category: "Poultry",
     title: "Ground Turkey & Tomato Pasta",
     description: "A quick weeknight pasta with a rich tomato sauce, sundried tomatoes for depth, and a hit of lemon at the end to brighten it up.",
     baseServings: 4,
@@ -38,6 +39,7 @@ export const STARTER_RECIPES = [
   },
   {
     id: "starter-lime-meatballs",
+    category: "Poultry",
     title: "Lime Turkey Meatballs in Tomato Sauce",
     description: "Garlicky turkey meatballs brightened with lime zest and juice, simmered in a simple tomato sauce with sundried tomatoes. A fresh twist on the classic.",
     baseServings: 4,
@@ -68,6 +70,7 @@ export const STARTER_RECIPES = [
   },
   {
     id: "starter-baked-salmon",
+    category: "Fish",
     title: "Baked Soy Butter Salmon with Potatoes & Peas",
     description: "Salmon baked in a foil packet with a soy butter sauce that steams it gently and pools into its own sauce. Served with boiled baby potatoes and peas.",
     baseServings: 2,
