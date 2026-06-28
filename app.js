@@ -45,29 +45,9 @@ function uid() {
 }
 
 // ---------- Categories ----------
-const CATEGORIES = ["Fish", "Meat", "Poultry", "Salads", "Sides", "Desserts", "Other"];
-const COLLAPSE_KEY = "cookbook_collapsed_categories";
+const CATEGORIES = ["Fish", "Meat", "Poultry", "Pasta", "Salads", "Sides", "Snacks", "Drinks", "Desserts", "Other"];
 
-function getCollapsedCategories() {
-  try {
-    const raw = localStorage.getItem(COLLAPSE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    return [];
-  }
-}
-function setCollapsedCategories(list) {
-  try {
-    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(list));
-  } catch (e) {}
-}
-function toggleCategoryCollapsed(cat) {
-  const collapsed = getCollapsedCategories();
-  const idx = collapsed.indexOf(cat);
-  if (idx === -1) collapsed.push(cat);
-  else collapsed.splice(idx, 1);
-  setCollapsedCategories(collapsed);
-}
+let activeCategory = null; // null means "show the first available tab"
 
 // Turns any sync code into a short, consistent, Firestore-safe document ID.
 // Not cryptographic security -- just a stable, collision-resistant mapping
@@ -395,48 +375,71 @@ function renderList(appEl) {
         <button class="icon-btn" id="settingsBtn" style="font-size:1.1rem;">⚙</button>
       </div>
     </div>
-    <div class="content">
   `;
   if (recipes.length === 0) {
     html += `
-      <div class="empty-state">
-        <div class="display">No recipes yet</div>
-        <div>Tap + to add one, or import one Claude gave you.</div>
+      <div class="content">
+        <div class="empty-state">
+          <div class="display">No recipes yet</div>
+          <div>Tap + to add one, or import one Claude gave you.</div>
+        </div>
       </div>
     `;
-  } else {
-    const uncategorized = recipes.filter((r) => !r.category);
-    if (uncategorized.length > 0) {
-      html += `
-        <div class="uncategorized-banner">
-          <strong>${uncategorized.length} recipe${uncategorized.length !== 1 ? "s" : ""}</strong> need a category.
-          <button class="small-btn" id="assignCategoriesBtn">Assign now</button>
-        </div>
-      `;
-    }
-
-    const collapsed = getCollapsedCategories();
-    CATEGORIES.forEach((cat) => {
-      const inCat = recipes.filter((r) => r.category === cat);
-      if (inCat.length === 0) return;
-      const isCollapsed = collapsed.includes(cat);
-      html += `
-        <div class="category-section">
-          <button class="category-header" data-cat="${escapeHtml(cat)}">
-            <span class="category-name">${escapeHtml(cat)}</span>
-            <span class="category-count">${inCat.length}</span>
-            <span class="category-chevron ${isCollapsed ? "collapsed" : ""}">▾</span>
-          </button>
-          <div class="category-body ${isCollapsed ? "hidden" : ""}">
-            ${inCat.slice().reverse().map((r) => recipeCardHtml(r)).join("")}
-          </div>
-        </div>
-      `;
+    html += `</div><button class="fab" id="fabAdd">+</button>`;
+    appEl.innerHTML = html;
+    document.getElementById("fabAdd").addEventListener("click", openAddMenu);
+    document.getElementById("settingsBtn").addEventListener("click", () => {
+      showSettingsModal = true;
+      render();
     });
+    return;
   }
-  html += `</div><button class="fab fab-import" id="fabImport" title="Import from Claude">⬇</button><button class="fab" id="fabAdd">+</button>`;
+
+  const uncategorized = recipes.filter((r) => !r.category);
+  const populatedCats = CATEGORIES.filter((cat) => recipes.some((r) => r.category === cat));
+  const tabs = uncategorized.length > 0 ? [...populatedCats, "Uncategorized"] : populatedCats;
+
+  // Keep the active tab valid even if its last recipe got deleted/recategorized.
+  if (!activeCategory || !tabs.includes(activeCategory)) {
+    activeCategory = tabs[0] || null;
+  }
+
+  html += `
+    <div class="tab-bar">
+      ${tabs.map((cat) => `
+        <button class="tab-btn ${cat === activeCategory ? "active" : ""}" data-tab="${escapeHtml(cat)}">
+          ${escapeHtml(cat)}
+        </button>
+      `).join("")}
+    </div>
+    <div class="content">
+  `;
+
+  const inActiveTab = activeCategory === "Uncategorized"
+    ? uncategorized
+    : recipes.filter((r) => r.category === activeCategory);
+
+  if (activeCategory === "Uncategorized" && uncategorized.length > 0) {
+    html += `
+      <div class="uncategorized-banner">
+        <strong>${uncategorized.length} recipe${uncategorized.length !== 1 ? "s" : ""}</strong> need a category.
+        <button class="small-btn" id="assignCategoriesBtn">Assign now</button>
+      </div>
+    `;
+  }
+
+  const sorted = inActiveTab.slice().sort((a, b) => a.title.localeCompare(b.title));
+  html += sorted.map((r) => recipeCardHtml(r)).join("");
+
+  html += `</div><button class="fab" id="fabAdd">+</button>`;
   appEl.innerHTML = html;
 
+  appEl.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeCategory = btn.dataset.tab;
+      render();
+    });
+  });
   appEl.querySelectorAll(".recipe-card").forEach((card) => {
     card.addEventListener("click", (e) => {
       if (e.target.closest(".delete-x") || e.target.closest(".recat-pill") || e.target.closest(".recat-inline")) return;
@@ -473,12 +476,6 @@ function renderList(appEl) {
       });
     }
   });
-  appEl.querySelectorAll(".category-header").forEach((header) => {
-    header.addEventListener("click", () => {
-      toggleCategoryCollapsed(header.dataset.cat);
-      render();
-    });
-  });
   const assignBtn = document.getElementById("assignCategoriesBtn");
   if (assignBtn) {
     assignBtn.addEventListener("click", () => {
@@ -486,20 +483,53 @@ function renderList(appEl) {
       render();
     });
   }
-  document.getElementById("fabAdd").addEventListener("click", () => {
-    currentView = { name: "add" };
-    render();
-  });
-  document.getElementById("fabImport").addEventListener("click", () => {
-    showImportModal = true;
-    render();
-  });
+  document.getElementById("fabAdd").addEventListener("click", openAddMenu);
   document.getElementById("settingsBtn").addEventListener("click", () => {
     showSettingsModal = true;
     render();
   });
   const pill = document.getElementById("syncPill");
   if (pill) pill.addEventListener("click", () => { showSettingsModal = true; render(); });
+}
+
+// Single Add button -> small popup choosing manual entry vs. import,
+// replacing what used to be two separate FAB buttons.
+function openAddMenu() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "addMenuOverlay";
+  overlay.innerHTML = `
+    <div class="modal-sheet add-menu-sheet">
+      <h2 class="display" style="margin-bottom:18px;">Add a recipe</h2>
+      <button class="add-menu-option" id="addMenuManual">
+        <span class="add-menu-icon">✎</span>
+        <span>
+          <span class="add-menu-title">Enter it myself</span>
+          <span class="add-menu-sub">Type in ingredients and steps by hand</span>
+        </span>
+      </button>
+      <button class="add-menu-option" id="addMenuImport">
+        <span class="add-menu-icon">⬇</span>
+        <span>
+          <span class="add-menu-title">Import from Claude</span>
+          <span class="add-menu-sub">Paste JSON Claude gave you in chat</span>
+        </span>
+      </button>
+      <button class="modal-cancel" id="addMenuCancel" style="margin-top:8px; width:100%;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById("addMenuManual").addEventListener("click", () => {
+    overlay.remove();
+    currentView = { name: "add" };
+    render();
+  });
+  document.getElementById("addMenuImport").addEventListener("click", () => {
+    overlay.remove();
+    showImportModal = true;
+    render();
+  });
+  document.getElementById("addMenuCancel").addEventListener("click", () => overlay.remove());
 }
 
 function openDetail(id) {

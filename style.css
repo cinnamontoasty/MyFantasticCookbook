@@ -727,7 +727,7 @@
     font-style: italic;
   }
 
-  /* ---------- Categories ---------- */
+  /* ---------- Category tabs ---------- */
   .uncategorized-banner {
     background: var(--paper-deep);
     border: 1px solid var(--line);
@@ -742,48 +742,31 @@
     flex-wrap: wrap;
   }
 
-  .category-section {
-    margin-bottom: 8px;
-  }
-  .category-header {
-    width: 100%;
+  .tab-bar {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    background: none;
-    border: none;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 12px 20px 0;
+    -webkit-overflow-scrolling: touch;
     border-bottom: 1px solid var(--line);
-    padding: 14px 0;
-    cursor: pointer;
-    text-align: left;
   }
-  .category-name {
-    font-family: 'Fraunces', serif;
-    font-weight: 600;
-    font-size: 1.15rem;
-    flex: 1;
-  }
-  .category-count {
-    font-size: 0.82rem;
+  .tab-bar::-webkit-scrollbar { display: none; }
+  .tab-btn {
+    flex-shrink: 0;
+    border: none;
+    background: none;
     color: var(--ink-soft);
-    background: var(--paper-deep);
-    border-radius: 12px;
-    padding: 2px 10px;
     font-weight: 600;
+    font-size: 0.95rem;
+    padding: 8px 4px 12px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
   }
-  .category-chevron {
-    color: var(--tomato);
-    font-size: 1rem;
-    transition: transform 0.2s ease;
-  }
-  .category-chevron.collapsed {
-    transform: rotate(-90deg);
-  }
-  .category-body {
-    padding-top: 14px;
-  }
-  .category-body.hidden {
-    display: none;
+  .tab-btn + .tab-btn { margin-left: 14px; }
+  .tab-btn.active {
+    color: var(--tomato-deep);
+    border-bottom-color: var(--tomato);
   }
 
   .fab-import {
@@ -793,6 +776,42 @@
     height: 50px;
     font-size: 1.4rem;
     box-shadow: 0 6px 16px rgba(92, 122, 92, 0.4);
+  }
+
+  .add-menu-sheet { padding-bottom: 24px; }
+  .add-menu-option {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    text-align: left;
+    background: var(--paper-deep);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .add-menu-option:active { background: var(--herb); border-color: var(--herb); }
+  .add-menu-option:active .add-menu-title,
+  .add-menu-option:active .add-menu-sub { color: white; }
+  .add-menu-icon {
+    font-size: 1.4rem;
+    flex-shrink: 0;
+    width: 36px;
+    text-align: center;
+  }
+  .add-menu-title {
+    display: block;
+    font-weight: 700;
+    font-size: 1.02rem;
+    color: var(--ink);
+  }
+  .add-menu-sub {
+    display: block;
+    font-size: 0.84rem;
+    color: var(--ink-soft);
+    margin-top: 2px;
   }
 
   select {
