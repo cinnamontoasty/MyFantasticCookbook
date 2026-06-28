@@ -805,3 +805,33 @@
     background: white;
     color: var(--ink);
   }
+
+  .meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .recat-pill {
+    border: 1px solid var(--line);
+    background: var(--paper-deep);
+    color: var(--ink-soft);
+    font-size: 0.76rem;
+    font-weight: 600;
+    border-radius: 12px;
+    padding: 3px 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .recat-pill:active { background: var(--herb); color: white; border-color: var(--herb); }
+  .recat-inline {
+    margin-top: 10px;
+  }
+  .recat-inline.hidden {
+    display: none;
+  }
+  .recat-inline select {
+    font-size: 0.9rem;
+    padding: 9px 12px;
+  }

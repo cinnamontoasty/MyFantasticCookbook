@@ -375,7 +375,13 @@ function recipeCardHtml(r) {
       <button class="delete-x" data-delete="${r.id}">✕</button>
       <div class="title display">${escapeHtml(r.title)}</div>
       <div class="desc">${escapeHtml(r.description || "")}</div>
-      <div class="meta">${r.baseServings} servings · ${stepCount} step${stepCount !== 1 ? "s" : ""}</div>
+      <div class="meta-row">
+        <span class="meta">${r.baseServings} servings · ${stepCount} step${stepCount !== 1 ? "s" : ""}</span>
+        <button class="recat-pill" data-recat="${r.id}">${escapeHtml(r.category || "Other")} ▾</button>
+      </div>
+      <div class="recat-inline hidden" data-recat-inline="${r.id}">
+        ${categorySelectHtml(r.category || "", "recat-select-" + r.id)}
+      </div>
     </div>
   `;
 }
@@ -433,7 +439,7 @@ function renderList(appEl) {
 
   appEl.querySelectorAll(".recipe-card").forEach((card) => {
     card.addEventListener("click", (e) => {
-      if (e.target.closest(".delete-x")) return;
+      if (e.target.closest(".delete-x") || e.target.closest(".recat-pill") || e.target.closest(".recat-inline")) return;
       openDetail(card.dataset.id);
     });
   });
@@ -446,6 +452,26 @@ function renderList(appEl) {
         persistRecipes();
       }
     });
+  });
+  appEl.querySelectorAll("[data-recat]").forEach((pill) => {
+    pill.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = pill.dataset.recat;
+      const inline = appEl.querySelector(`[data-recat-inline="${id}"]`);
+      if (inline) inline.classList.toggle("hidden");
+    });
+  });
+  appEl.querySelectorAll("[data-recat-inline]").forEach((inlineBlock) => {
+    inlineBlock.addEventListener("click", (e) => e.stopPropagation());
+    const id = inlineBlock.dataset.recatInline;
+    const select = document.getElementById("recat-select-" + id);
+    if (select) {
+      select.addEventListener("change", async (e) => {
+        const recipe = recipes.find((r) => r.id === id);
+        if (recipe) recipe.category = e.target.value;
+        await persistRecipes();
+      });
+    }
   });
   appEl.querySelectorAll(".category-header").forEach((header) => {
     header.addEventListener("click", () => {
