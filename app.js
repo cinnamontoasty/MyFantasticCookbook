@@ -48,8 +48,22 @@ function uid() {
 // Not cryptographic security -- just a stable, collision-resistant mapping
 // so "BethKitchen" always points at the same document. Codes are
 // case/whitespace-normalized so "BethKitchen" and "bethkitchen " match.
+//
+// Also normalizes "smart" typographic punctuation to plain ASCII. iOS
+// auto-converts a typed straight apostrophe (') into a curly one (’) as
+// you type; desktop browsers often don't apply the same autocorrect. Two
+// people (or two devices) typing what looks like the identical code can
+// end up with different underlying characters and silently land on two
+// different documents. This makes both forms hash the same way.
+function normalizeSmartPunctuation(str) {
+  return str
+    .replace(/[\u2018\u2019\u02BC\u02BB]/g, "'")   // curly single quotes/apostrophes -> '
+    .replace(/[\u201C\u201D]/g, '"')                  // curly double quotes -> "
+    .replace(/[\u2013\u2014]/g, "-");                 // en/em dash -> hyphen
+}
+
 async function hashSyncCode(code) {
-  const normalized = code.trim().toLowerCase();
+  const normalized = normalizeSmartPunctuation(code.trim().toLowerCase());
   const encoder = new TextEncoder();
   const data = encoder.encode(normalized);
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
