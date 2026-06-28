@@ -44,6 +44,31 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// ---------- Categories ----------
+const CATEGORIES = ["Fish", "Meat", "Poultry", "Salads", "Sides", "Desserts", "Other"];
+const COLLAPSE_KEY = "cookbook_collapsed_categories";
+
+function getCollapsedCategories() {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+function setCollapsedCategories(list) {
+  try {
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+function toggleCategoryCollapsed(cat) {
+  const collapsed = getCollapsedCategories();
+  const idx = collapsed.indexOf(cat);
+  if (idx === -1) collapsed.push(cat);
+  else collapsed.splice(idx, 1);
+  setCollapsedCategories(collapsed);
+}
+
 // Turns any sync code into a short, consistent, Firestore-safe document ID.
 // Not cryptographic security -- just a stable, collision-resistant mapping
 // so "BethKitchen" always points at the same document. Codes are
@@ -296,6 +321,7 @@ function render() {
   else if (currentView.name === "detail") renderDetail(app);
   else if (currentView.name === "cook") renderCook(app);
   else if (currentView.name === "add") renderAddForm(app);
+  else if (currentView.name === "assign-categories") renderAssignCategories(app);
 
   // Always clear any existing modal nodes before deciding whether to draw
   // one fresh. This guarantees DOM state can never drift from app state,
@@ -342,6 +368,18 @@ function renderSyncCodeSetup(appEl) {
 }
 
 // ---------- List View ----------
+function recipeCardHtml(r) {
+  const stepCount = r.steps.length;
+  return `
+    <div class="recipe-card" data-id="${r.id}">
+      <button class="delete-x" data-delete="${r.id}">✕</button>
+      <div class="title display">${escapeHtml(r.title)}</div>
+      <div class="desc">${escapeHtml(r.description || "")}</div>
+      <div class="meta">${r.baseServings} servings · ${stepCount} step${stepCount !== 1 ? "s" : ""}</div>
+    </div>
+  `;
+}
+
 function renderList(appEl) {
   let html = `
     <div class="topbar">
@@ -361,19 +399,36 @@ function renderList(appEl) {
       </div>
     `;
   } else {
-    recipes.slice().reverse().forEach((r) => {
-      const stepCount = r.steps.length;
+    const uncategorized = recipes.filter((r) => !r.category);
+    if (uncategorized.length > 0) {
       html += `
-        <div class="recipe-card" data-id="${r.id}">
-          <button class="delete-x" data-delete="${r.id}">✕</button>
-          <div class="title display">${escapeHtml(r.title)}</div>
-          <div class="desc">${escapeHtml(r.description || "")}</div>
-          <div class="meta">${r.baseServings} servings · ${stepCount} step${stepCount !== 1 ? "s" : ""}</div>
+        <div class="uncategorized-banner">
+          <strong>${uncategorized.length} recipe${uncategorized.length !== 1 ? "s" : ""}</strong> need a category.
+          <button class="small-btn" id="assignCategoriesBtn">Assign now</button>
+        </div>
+      `;
+    }
+
+    const collapsed = getCollapsedCategories();
+    CATEGORIES.forEach((cat) => {
+      const inCat = recipes.filter((r) => r.category === cat);
+      if (inCat.length === 0) return;
+      const isCollapsed = collapsed.includes(cat);
+      html += `
+        <div class="category-section">
+          <button class="category-header" data-cat="${escapeHtml(cat)}">
+            <span class="category-name">${escapeHtml(cat)}</span>
+            <span class="category-count">${inCat.length}</span>
+            <span class="category-chevron ${isCollapsed ? "collapsed" : ""}">▾</span>
+          </button>
+          <div class="category-body ${isCollapsed ? "hidden" : ""}">
+            ${inCat.slice().reverse().map((r) => recipeCardHtml(r)).join("")}
+          </div>
         </div>
       `;
     });
   }
-  html += `</div><button class="fab" id="fabAdd">+</button>`;
+  html += `</div><button class="fab fab-import" id="fabImport" title="Import from Claude">⬇</button><button class="fab" id="fabAdd">+</button>`;
   appEl.innerHTML = html;
 
   appEl.querySelectorAll(".recipe-card").forEach((card) => {
@@ -392,8 +447,25 @@ function renderList(appEl) {
       }
     });
   });
+  appEl.querySelectorAll(".category-header").forEach((header) => {
+    header.addEventListener("click", () => {
+      toggleCategoryCollapsed(header.dataset.cat);
+      render();
+    });
+  });
+  const assignBtn = document.getElementById("assignCategoriesBtn");
+  if (assignBtn) {
+    assignBtn.addEventListener("click", () => {
+      currentView = { name: "assign-categories" };
+      render();
+    });
+  }
   document.getElementById("fabAdd").addEventListener("click", () => {
     currentView = { name: "add" };
+    render();
+  });
+  document.getElementById("fabImport").addEventListener("click", () => {
+    showImportModal = true;
     render();
   });
   document.getElementById("settingsBtn").addEventListener("click", () => {
@@ -407,6 +479,42 @@ function renderList(appEl) {
 function openDetail(id) {
   currentView = { name: "detail", id, servings: recipes.find((r) => r.id === id).baseServings, checked: {} };
   render();
+}
+
+// ---------- Assign Categories (for pre-existing recipes) ----------
+function renderAssignCategories(appEl) {
+  const uncategorized = recipes.filter((r) => !r.category);
+  appEl.innerHTML = `
+    <div class="topbar">
+      <button class="back-btn" id="backFromAssign">‹ Cookbook</button>
+    </div>
+    <div class="content">
+      <h2 class="display" style="margin-top:4px;">Assign categories</h2>
+      <p class="hint" style="margin-bottom:20px;">Pick a category for each recipe below. Changes save as you go.</p>
+      ${uncategorized.length === 0 ? `<p class="hint">All recipes are categorized.</p>` : ""}
+      ${uncategorized.map((r) => `
+        <div class="settings-row" style="align-items:flex-start;">
+          <span class="label" style="max-width:55%;">${escapeHtml(r.title)}</span>
+          ${categorySelectHtml("", "assign-" + r.id)}
+        </div>
+      `).join("")}
+    </div>
+  `;
+  document.getElementById("backFromAssign").addEventListener("click", () => {
+    currentView = { name: "list" };
+    render();
+  });
+  uncategorized.forEach((r) => {
+    const sel = document.getElementById("assign-" + r.id);
+    if (sel) {
+      sel.addEventListener("change", async (e) => {
+        const recipe = recipes.find((rec) => rec.id === r.id);
+        if (recipe) recipe.category = e.target.value;
+        await persistRecipes();
+        render();
+      });
+    }
+  });
 }
 
 // ---------- Detail View ----------
@@ -838,10 +946,19 @@ function handleVoiceIntent(intent, recipe, idx, total, step, goToStep) {
 let draft = null;
 function freshDraft() {
   return {
-    title: "", description: "", baseServings: 4, notes: "",
+    title: "", description: "", baseServings: 4, notes: "", category: "",
     ingredients: [{ localId: uid(), amount: "", unit: "", name: "" }],
     steps: [{ localId: uid(), title: "", content: "", hasTimer: false, timerMinutes: "" }]
   };
+}
+
+function categorySelectHtml(selectedValue, idAttr) {
+  return `
+    <select id="${idAttr}">
+      <option value="" ${!selectedValue ? "selected" : ""} disabled>Choose a category…</option>
+      ${CATEGORIES.map((c) => `<option value="${escapeHtml(c)}" ${selectedValue === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+    </select>
+  `;
 }
 
 function renderAddForm(appEl) {
@@ -853,7 +970,7 @@ function renderAddForm(appEl) {
     </div>
     <div class="content">
       <h2 class="display" style="margin-top:4px;">New Recipe</h2>
-      <p class="hint" style="margin-bottom:18px;">Building one by hand? Use this form. Got a recipe from Claude? Tap ⚙ on the main screen and use "Import from Claude" instead — it's faster.</p>
+      <p class="hint" style="margin-bottom:18px;">Building one by hand? Use this form. Got a recipe from Claude? Use the Import button below instead — it's faster.</p>
 
       <div class="form-group">
         <label>Title</label>
@@ -862,6 +979,10 @@ function renderAddForm(appEl) {
       <div class="form-group">
         <label>Description</label>
         <textarea id="f-desc" placeholder="A short one-liner about the dish">${escapeHtml(draft.description)}</textarea>
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        ${categorySelectHtml(draft.category, "f-category")}
       </div>
       <div class="form-group">
         <label>Base servings</label>
@@ -893,6 +1014,7 @@ function renderAddForm(appEl) {
   });
   document.getElementById("f-title").addEventListener("input", (e) => (draft.title = e.target.value));
   document.getElementById("f-desc").addEventListener("input", (e) => (draft.description = e.target.value));
+  document.getElementById("f-category").addEventListener("change", (e) => (draft.category = e.target.value));
   document.getElementById("f-servings").addEventListener("input", (e) => (draft.baseServings = parseInt(e.target.value) || 1));
   document.getElementById("f-notes").addEventListener("input", (e) => (draft.notes = e.target.value));
   document.getElementById("addIngBtn").addEventListener("click", () => {
@@ -970,6 +1092,7 @@ function renderStepRows() {
 
 async function saveDraft() {
   if (!draft.title.trim()) { alert("Please give the recipe a title."); return; }
+  if (!draft.category) { alert("Please choose a category."); return; }
   const validIngredients = draft.ingredients.filter((i) => i.name.trim());
   const validSteps = draft.steps.filter((s) => s.content.trim());
   if (validSteps.length === 0) { alert("Please add at least one step."); return; }
@@ -978,6 +1101,7 @@ async function saveDraft() {
     id: uid(),
     title: draft.title.trim(),
     description: draft.description.trim(),
+    category: draft.category,
     baseServings: draft.baseServings || 4,
     notes: draft.notes.trim(),
     ingredients: validIngredients.map((i) => ({ id: i.localId, amount: i.amount.trim(), unit: i.unit.trim(), name: i.name.trim() })),
@@ -996,6 +1120,8 @@ async function saveDraft() {
 }
 
 // ---------- Import from Claude (JSON paste) Modal ----------
+let importCategory = "";
+
 function renderImportModal() {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -1005,6 +1131,10 @@ function renderImportModal() {
       <h2 class="display">Import a recipe</h2>
       <p class="helper">Ask Claude for a recipe and say "give me the JSON for my cookbook app." Paste what it gives you below.</p>
       <textarea class="json-input" id="importTextarea" placeholder='{"title": "...", "ingredients": [...], "steps": [...]}'>${escapeHtml(importText)}</textarea>
+      <div class="form-group" style="margin-top:14px;">
+        <label>Category</label>
+        ${categorySelectHtml(importCategory, "importCategorySelect")}
+      </div>
       ${importError ? `<div class="modal-error">${escapeHtml(importError)}</div>` : ""}
       <div class="modal-actions">
         <button class="modal-cancel" id="importCancel">Cancel</button>
@@ -1015,16 +1145,21 @@ function renderImportModal() {
   document.body.appendChild(overlay);
 
   document.getElementById("importTextarea").addEventListener("input", (e) => (importText = e.target.value));
+  document.getElementById("importCategorySelect").addEventListener("change", (e) => (importCategory = e.target.value));
   document.getElementById("importCancel").addEventListener("click", () => {
-    showImportModal = false; importText = ""; importError = "";
+    showImportModal = false; importText = ""; importError = ""; importCategory = "";
     document.getElementById("importOverlay").remove();
   });
   document.getElementById("importConfirm").addEventListener("click", handleImportConfirm);
 }
 
-function normalizeImportedRecipe(obj) {
+function normalizeImportedRecipe(obj, chosenCategory) {
   if (!obj.title || !Array.isArray(obj.steps) || obj.steps.length === 0) {
     throw new Error("Needs at least a title and one step.");
+  }
+  const category = obj.category && CATEGORIES.includes(obj.category) ? obj.category : chosenCategory;
+  if (!category) {
+    throw new Error("Please choose a category before adding this recipe.");
   }
   const ingredients = (obj.ingredients || []).map((ing) => ({
     id: ing.id || uid(),
@@ -1045,6 +1180,7 @@ function normalizeImportedRecipe(obj) {
     id: uid(),
     title: String(obj.title),
     description: obj.description || "",
+    category,
     baseServings: obj.base_servings || obj.baseServings || 4,
     notes: obj.notes || "",
     ingredients,
@@ -1063,11 +1199,12 @@ async function handleImportConfirm() {
     return;
   }
   try {
-    const recipe = normalizeImportedRecipe(parsed);
+    const recipe = normalizeImportedRecipe(parsed, importCategory);
     recipes.push(recipe);
     showImportModal = false;
     importText = "";
     importError = "";
+    importCategory = "";
     currentView = { name: "list" };
     await persistRecipes();
   } catch (e) {
