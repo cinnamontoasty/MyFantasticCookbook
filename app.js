@@ -73,6 +73,25 @@ function saveSyncCodeLocally(code) {
   }
 }
 
+// Writes a throwaway value and immediately reads it back. In normal
+// browsing this always matches. In some private/incognito modes,
+// storage APIs accept writes without error but don't actually persist
+// them (or get wiped faster than expected) -- this catches that
+// silently-broken case instead of letting the symptom (recipes seem
+// to "vanish") show up later with no explanation.
+function storageIsReliable() {
+  try {
+    const testKey = "__cookbook_storage_test__";
+    const testVal = String(Date.now());
+    localStorage.setItem(testKey, testVal);
+    const readBack = localStorage.getItem(testKey);
+    localStorage.removeItem(testKey);
+    return readBack === testVal;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ---------- Auth + Firestore wiring ----------
 function startFirebase() {
   if (!auth) {
@@ -275,12 +294,18 @@ function render() {
 
 // ---------- Sync Code Setup Screen ----------
 function renderSyncCodeSetup(appEl) {
+  const reliable = storageIsReliable();
   appEl.innerHTML = `
     <div class="content" style="padding-top:60px;">
       <div class="hero-block" style="border-bottom:none;">
         <div class="title display" style="font-size:1.7rem;">Connect your cookbook</div>
         <p class="desc">Enter your sync code to load your recipes on this device. If you've never set one up, choose a memorable word or phrase now — anyone who enters the same code (like a family member) will share this exact cookbook.</p>
       </div>
+      ${!reliable ? `
+        <div class="modal-error" style="margin-bottom:18px;">
+          This browser tab doesn't seem to allow saved data — this usually means you're in Private/Incognito Browsing. The sync code won't be remembered, and recipes may appear to be missing even though they're safe on your account. Switch to a regular (non-private) tab or your Home Screen icon for this to work reliably.
+        </div>
+      ` : ""}
       <div class="form-group">
         <label>Sync code</label>
         <input type="text" id="syncCodeInput" placeholder="e.g. BethKitchen" autocapitalize="none" autocorrect="off">
@@ -1061,6 +1086,11 @@ function renderSettingsModal() {
           <span class="value">${escapeHtml(syncCode)}</span>
         </div>
         <p class="hint">Enter this same code on another device (or have your husband enter it) to share this exact cookbook.</p>
+        <div class="settings-row">
+          <span class="label">Document ID (debug)</span>
+          <span class="value" id="debugDocId">loading…</span>
+        </div>
+        <p class="hint">If this ID matches across two browsers/tabs that both used the same sync code, they're definitely looking at the same cookbook.</p>
       ` : ""}
       <div class="settings-row">
         <span class="label">Recipes saved</span>
@@ -1082,6 +1112,12 @@ function renderSettingsModal() {
     </div>
   `;
   document.body.appendChild(overlay);
+  if (syncCode) {
+    hashSyncCode(syncCode).then((docId) => {
+      const el = document.getElementById("debugDocId");
+      if (el) el.textContent = docId;
+    });
+  }
   document.getElementById("settingsClose").addEventListener("click", () => {
     showSettingsModal = false;
     document.getElementById("settingsOverlay").remove();
