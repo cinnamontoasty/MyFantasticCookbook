@@ -13,9 +13,15 @@ import { STARTER_RECIPES } from "./starter-recipes.js";
 
 // ---------- Firebase init ----------
 let app, db, auth, userId = null;
-let firebaseReady = false;
-let syncState = "connecting"; // connecting | synced | offline | error
+let syncState = "connecting"; // connecting | needs-code | synced | offline | error
 let unsubscribeSnapshot = null;
+
+// The sync code is the real identity now -- not the anonymous auth UID.
+// Anonymous auth still runs underneath (Firestore rules require *some*
+// signed-in user), but every device that enters the same code lands on
+// the exact same document, regardless of which browser or phone it is.
+const SYNC_CODE_KEY = "cookbook_sync_code";
+let syncCode = null; // e.g. "BethKitchen"
 
 try {
   app = initializeApp(firebaseConfig);
@@ -38,15 +44,54 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// Turns any sync code into a short, consistent, Firestore-safe document ID.
+// Not cryptographic security -- just a stable, collision-resistant mapping
+// so "BethKitchen" always points at the same document. Codes are
+// case/whitespace-normalized so "BethKitchen" and "bethkitchen " match.
+async function hashSyncCode(code) {
+  const normalized = code.trim().toLowerCase();
+  const encoder = new TextEncoder();
+  const data = encoder.encode(normalized);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+
+function getSavedSyncCode() {
+  try {
+    return localStorage.getItem(SYNC_CODE_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveSyncCodeLocally(code) {
+  try {
+    localStorage.setItem(SYNC_CODE_KEY, code);
+  } catch (e) {
+    console.error("Couldn't remember sync code on this device", e);
+  }
+}
+
 // ---------- Auth + Firestore wiring ----------
 function startFirebase() {
   if (!auth) {
-    // Config not filled in yet -- fall back to local-only so the app
-    // is still usable, and tell the user via the sync pill.
     syncState = "error";
     loadLocalFallback();
     return;
   }
+  const saved = getSavedSyncCode();
+  if (saved) {
+    syncCode = saved;
+    signInAndAttach();
+  } else {
+    syncState = "needs-code";
+    loaded = true;
+    render();
+  }
+}
+
+function signInAndAttach() {
   onAuthStateChanged(auth, (user) => {
     if (user) {
       userId = user.uid;
@@ -66,19 +111,30 @@ function startFirebase() {
   });
 }
 
-function cookbookDocRef() {
-  return doc(db, "cookbooks", userId);
+// Called when the person submits a sync code on the setup screen.
+async function connectWithSyncCode(code) {
+  if (!code || !code.trim()) return;
+  syncCode = code.trim();
+  saveSyncCodeLocally(syncCode);
+  syncState = "connecting";
+  loaded = false;
+  render();
+  signInAndAttach();
+}
+
+async function cookbookDocRef() {
+  const docId = await hashSyncCode(syncCode);
+  return doc(db, "cookbooks", docId);
 }
 
 async function attachSnapshotListener() {
   if (unsubscribeSnapshot) unsubscribeSnapshot();
-  const ref = cookbookDocRef();
+  const ref = await cookbookDocRef();
 
   try {
     const snap = await getDoc(ref);
     if (!snap.exists()) {
-      // First time ever opening the app on this Firebase project --
-      // seed with the starter recipes.
+      // Brand new sync code nobody has used before -- seed with starters.
       await setDoc(ref, { recipes: STARTER_RECIPES });
     }
   } catch (e) {
@@ -106,12 +162,14 @@ async function attachSnapshotListener() {
 }
 
 async function persistRecipes() {
-  if (!db || !userId) {
+  if (!db || !syncCode) {
     saveLocalFallback();
+    render();
     return;
   }
   try {
-    await setDoc(cookbookDocRef(), { recipes });
+    const ref = await cookbookDocRef();
+    await setDoc(ref, { recipes });
     syncState = "synced";
   } catch (e) {
     console.error("Save failed", e);
@@ -191,6 +249,12 @@ function syncPillHtml() {
 // ---------- Render dispatcher ----------
 function render() {
   const app = document.getElementById("app");
+
+  if (syncState === "needs-code") {
+    renderSyncCodeSetup(app);
+    return;
+  }
+
   if (!loaded) {
     app.innerHTML = '<div class="loading">Loading your cookbook…</div>';
     return;
@@ -207,6 +271,35 @@ function render() {
   document.querySelectorAll("#importOverlay, #settingsOverlay").forEach((el) => el.remove());
   if (showImportModal) renderImportModal();
   if (showSettingsModal) renderSettingsModal();
+}
+
+// ---------- Sync Code Setup Screen ----------
+function renderSyncCodeSetup(appEl) {
+  appEl.innerHTML = `
+    <div class="content" style="padding-top:60px;">
+      <div class="hero-block" style="border-bottom:none;">
+        <div class="title display" style="font-size:1.7rem;">Connect your cookbook</div>
+        <p class="desc">Enter your sync code to load your recipes on this device. If you've never set one up, choose a memorable word or phrase now — anyone who enters the same code (like a family member) will share this exact cookbook.</p>
+      </div>
+      <div class="form-group">
+        <label>Sync code</label>
+        <input type="text" id="syncCodeInput" placeholder="e.g. BethKitchen" autocapitalize="none" autocorrect="off">
+      </div>
+      <button class="save-btn" id="syncCodeSubmit">Connect</button>
+      <p class="hint" id="syncCodeError" style="color: var(--tomato-deep);"></p>
+    </div>
+  `;
+  document.getElementById("syncCodeSubmit").addEventListener("click", () => {
+    const val = document.getElementById("syncCodeInput").value;
+    if (!val.trim()) {
+      document.getElementById("syncCodeError").textContent = "Please enter a sync code.";
+      return;
+    }
+    connectWithSyncCode(val);
+  });
+  document.getElementById("syncCodeInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("syncCodeSubmit").click();
+  });
 }
 
 // ---------- List View ----------
@@ -962,6 +1055,13 @@ function renderSettingsModal() {
         <span class="label">Sync status</span>
         <span class="value">${statusText[syncState] || ""}</span>
       </div>
+      ${syncCode ? `
+        <div class="settings-row">
+          <span class="label">Sync code</span>
+          <span class="value">${escapeHtml(syncCode)}</span>
+        </div>
+        <p class="hint">Enter this same code on another device (or have your husband enter it) to share this exact cookbook.</p>
+      ` : ""}
       <div class="settings-row">
         <span class="label">Recipes saved</span>
         <span class="value">${recipes.length}</span>
@@ -970,6 +1070,12 @@ function renderSettingsModal() {
         <span class="label">Add a recipe from Claude</span>
         <button class="small-btn" id="openImportFromSettings">Import</button>
       </div>
+      ${syncCode ? `
+        <div class="settings-row" style="border-bottom:none;">
+          <span class="label">Switch to a different sync code</span>
+          <button class="small-btn" id="switchSyncCodeBtn">Switch</button>
+        </div>
+      ` : ""}
       <div class="modal-actions" style="margin-top:20px;">
         <button class="modal-cancel" id="settingsClose">Close</button>
       </div>
@@ -986,6 +1092,21 @@ function renderSettingsModal() {
     showImportModal = true;
     render();
   });
+  const switchBtn = document.getElementById("switchSyncCodeBtn");
+  if (switchBtn) {
+    switchBtn.addEventListener("click", () => {
+      if (!confirm("Switch to a different sync code? This device will disconnect from the current cookbook until you enter a code again.")) return;
+      if (unsubscribeSnapshot) unsubscribeSnapshot();
+      try { localStorage.removeItem(SYNC_CODE_KEY); } catch (e) {}
+      syncCode = null;
+      syncState = "needs-code";
+      loaded = false;
+      showSettingsModal = false;
+      document.getElementById("settingsOverlay").remove();
+      currentView = { name: "list" };
+      render();
+    });
+  }
 }
 
 // ---------- Boot ----------
